@@ -1,0 +1,11 @@
+[package]
+name = "vrender"
+version = "0.1.0"
+authors = ["Benny A <virusdownloader7@gmail.com>"]
+
+[dependencies]
+vulkano = "0.7"
+vulkano-shader-derive = "0.7"
+winit = "0.7"
+vulkano-win = "0.7"
+cgmath = "0.16"
