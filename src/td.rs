@@ -57,16 +57,6 @@ impl Mesh {
 	}
 }
 
-pub trait Render {
-	fn get_data(&self) -> (&[Vertex], &[u16]);
-}
-
-impl Render for Mesh {
-	fn get_data(&self) -> (&[Vertex], &[u16]) {
-		(&self.verts, &self.indices)
-	}
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct Color {
 	r: f32,

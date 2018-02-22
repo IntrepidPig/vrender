@@ -6,6 +6,8 @@ extern crate winit;
 extern crate vulkano_win;
 extern crate cgmath;
 
+pub mod render;
+pub mod obj;
 pub mod td;
 pub mod math {
 	pub use cgmath::*;
@@ -14,10 +16,12 @@ pub mod window {
 	pub use winit::*;
 }
 
-use td::{Color, Vertex, Mesh, Camera, Render};
+use td::{Color, Vertex, Mesh, Camera};
+use render::{Render, RenderTargets};
 
 use std::time::{Duration, Instant};
 use std::sync::Arc;
+use std::cell::RefCell;
 use std::mem;
 use std::slice;
 
@@ -39,7 +43,7 @@ use winit::{EventsLoop, WindowBuilder, Window, Event};
 use cgmath::{Matrix4, Quaternion, PerspectiveFov, Deg, Rotation, Vector3, Rad, One, Zero};
 
 pub trait App {
-	fn get_data(&self) -> &Vec<(Vec<Vertex>, Vec<u32>)>;
+	fn get_data(&self) -> RenderTargets;
 	fn get_camera(&mut self) -> &mut Camera;
 	fn handle_event(&mut self, event: Event);
 	fn update(&mut self, ms: f32);
@@ -219,7 +223,7 @@ pub trait App {
 					.begin_render_pass(framebuffers.as_ref().unwrap()[image_num].clone(), false, vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()])
 					.unwrap();
 			
-			for data in self.get_data() {
+			for data in &*self.get_data() {
 				let dynamic_state = DynamicState {
 					viewports: Some(vec![Viewport {
 						origin: [0.0, 0.0],
@@ -229,12 +233,14 @@ pub trait App {
 					..DynamicState::none()
 				};
 				
-				let data: (&[Vertex], &[u32]) = (data.0.as_slice(), data.1.as_slice());
+				//let viter: std::iter::Cloned<Vertex> = data.vbuf().iter().cloned();
+                //let iiter = data.ibuf().iter().cloned();
 				
-				//let data = unsafe { (slice::from_raw_parts(data.0, data.1), slice::from_raw_parts(data.2, data.3)) };
-			
-				let (vbuf, vbuf_fut) = ImmutableBuffer::from_iter(data.0.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
-				let (ibuf, ibuf_fut) = ImmutableBuffer::from_iter(data.1.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+                let viter = data.vbuf();
+                let iiter = data.ibuf();
+
+				let (vbuf, vbuf_fut) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+				let (ibuf, ibuf_fut) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 				
 				//let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), data.0.iter().cloned()).unwrap();
 				//let indices = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), data.1.iter().cloned()).unwrap();
