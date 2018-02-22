@@ -15,6 +15,8 @@ pub mod math {
 pub mod window {
 	pub use winit::*;
 }
+#[cfg(test)]
+mod tests;
 
 use td::{Color, Vertex, Mesh, Camera};
 use render::{Render, RenderTargets};
