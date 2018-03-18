@@ -42,24 +42,45 @@ use vulkano::command_buffer::{CommandBuffer, AutoCommandBufferBuilder, DynamicSt
 use vulkano::sync::{now, GpuFuture};
 use vulkano::framebuffer::{Framebuffer, Subpass};
 use vulkano::format::Format;
-use vulkano::swapchain::{self, Swapchain, PresentMode, SurfaceTransform, SwapchainCreationError, AcquireError};
+use vulkano::swapchain::{self, Surface, Swapchain, PresentMode, SurfaceTransform, SwapchainCreationError, AcquireError};
 use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, WindowBuilder, Window, Event};
 use cgmath::{Matrix4, Quaternion, PerspectiveFov, Deg, Rotation, Vector3, Rad, One, Zero};
 
 pub struct Renderer<A: App> {
 	app: A,
+	instance: Arc<Instance>,
+	events_loop: EventsLoop,
+	window: Arc<Surface<Window>>,
 	targets: HashMap<String, Object>,
+}
+
+pub struct Context<'a> {
+	pub window: &'a Window,
+	pub targets: &'a mut HashMap<String, Object>,
 }
 
 impl<A: App> Renderer<A> {
 	pub fn new(app: A) -> Self {
+		let instance = Instance::new(None, &vulkano_win::required_extensions(), None)
+			.expect("Failed to create instance");
+		
+		let mut events_loop = EventsLoop::new();
+		
+		let surface = WindowBuilder::new().build_vk_surface(&events_loop, instance.clone()).unwrap();
+		
 		let mut renderer = Renderer {
 			app,
+			instance,
+			events_loop,
+			window: Arc::clone(&surface),
 			targets: HashMap::new(),
 		};
 		
-		renderer.app.start(&mut renderer.targets);
+		renderer.app.start(Context {
+			window: &renderer.window.window(),
+			targets: &mut renderer.targets,
+		});
 		renderer
 	}
 	
@@ -68,15 +89,10 @@ impl<A: App> Renderer<A> {
 	}
 	
 	pub fn run(&mut self) {
-		let instance = Instance::new(None, &vulkano_win::required_extensions(), None)
-				.expect("Failed to create instance");
+		let instance = Arc::clone(&self.instance);
 		
-		let mut events_loop = EventsLoop::new();
-		let window = WindowBuilder::new()
-				.build_vk_surface(&events_loop, instance.clone())
-				.unwrap();
 		let mut dimensions = {
-			let (width, height) = window.window().get_inner_size_pixels().unwrap();
+			let (width, height) = self.window.window().get_inner_size_pixels().unwrap();
 			[width, height]
 		};
 		
@@ -105,7 +121,7 @@ impl<A: App> Renderer<A> {
 		let queue = queues.next().unwrap();
 		
 		let (mut swapchain, mut images) = {
-			let caps = window.surface()
+			let caps = self.window
 					.capabilities(physical)
 					.expect("Failed to get surface capabilites");
 			
@@ -113,7 +129,7 @@ impl<A: App> Renderer<A> {
 			let format = caps.supported_formats[0].0;
 			
 			Swapchain::new(device.clone(),
-			               window.surface().clone(),
+			               self.window.clone(),
 			               caps.min_image_count,
 			               format,
 			               dimensions,
@@ -177,7 +193,7 @@ impl<A: App> Renderer<A> {
 			
 			if recreate_swapchain {
 				dimensions = {
-					let (width, height) = window.window().get_inner_size_pixels().unwrap();
+					let (width, height) = self.window.window().get_inner_size_pixels().unwrap();
 					[width, height]
 				};
 				
@@ -287,8 +303,16 @@ impl<A: App> Renderer<A> {
 			
 			previous_frame_end = Box::new(future) as Box<_>;
 			
+			let app = &mut self.app;
+			let events_loop = &mut self.events_loop;
+			let window = &self.window;
+			let targets = &mut self.targets;
+			
 			events_loop.poll_events(|event| {
-				self.app.handle_event(event.clone(), &mut self.targets);
+				app.handle_event(event.clone(), Context {
+					window: window.window(),
+					targets,
+				});
 				
 				use winit::WindowEvent::*;
 				match event {
@@ -304,17 +328,20 @@ impl<A: App> Renderer<A> {
 			
 			let elapsed = start.elapsed();
 			let ms = (elapsed.as_secs() as f64 * 1000.0f64 + elapsed.subsec_nanos() as f64 / 1_000_000.0f64) as f32;
-			self.app.update(ms, &mut self.targets);
+			app.update(ms, Context {
+				window: window.window(),
+				targets,
+			});
 		}
 	}
 }
 
 pub trait App {
 	fn get_camera(&mut self) -> &mut Camera;
-	fn handle_event(&mut self, event: Event, objects: &mut HashMap<String, Object>);
-	fn update(&mut self, ms: f32, objects: &mut HashMap<String, Object>);
+	fn handle_event(&mut self, event: Event, context: Context);
+	fn update(&mut self, ms: f32, context: Context);
 	fn is_running(&self) -> bool;
-	fn start(&mut self, objects: &mut HashMap<String, Object>) { }
+	fn start(&mut self, context: Context) { }
 }
 
 mod vs {
