@@ -70,23 +70,23 @@ impl Render for Mesh {
 	}
 }
 
-struct GpuMesh {
-	vbuf: Arc<ImmutableBuffer<[Vertex]>>,
-	ibuf: Arc<ImmutableBuffer<[u32]>>,
+pub struct GpuMesh {
+	pub vbuf: Arc<ImmutableBuffer<[Vertex]>>,
+	pub ibuf: Arc<ImmutableBuffer<[u32]>>,
 }
 
 impl GpuMesh {
 	pub fn from_mesh(mesh: &Mesh, queue: Arc<Queue>) -> Self {
-		let (vbuf, fut) = ImmutableBuffer::from_iter(mesh.verts.iter().cloned(),
+		let (vbuf, _) = ImmutableBuffer::from_iter(mesh.verts.iter().cloned(),
 		                                             BufferUsage::all(),
 		                                             Arc::clone(&queue)).unwrap();
-		let (ibuf, fut2) = ImmutableBuffer::from_iter(mesh.indices.iter().cloned(),
+		let (ibuf, _) = ImmutableBuffer::from_iter(mesh.indices.iter().cloned(),
 		                                              BufferUsage::all(),
 		                                              Arc::clone(&queue)).unwrap();
 		
 		GpuMesh {
-			vbuf: vbuf,
-			ibuf: ibuf
+			vbuf,
+			ibuf,
 		}
 	}
 }

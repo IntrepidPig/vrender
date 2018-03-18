@@ -1,8 +1,4 @@
-use vulkano::buffer::{CpuAccessibleBuffer, BufferUsage};
-use vulkano::pipeline::vertex::SingleBufferDefinition;
-use vulkano::device::Device;
-use std::sync::Arc;
-use cgmath::{Matrix4, Euler, Vector4, Vector3, Rad, One, Zero, Point3, Deg, InnerSpace, Quaternion, Angle, PerspectiveFov};
+use cgmath::{Matrix4, Euler, Vector4, Vector3, Zero, Point3, Deg, InnerSpace, Angle, PerspectiveFov};
 
 pub type Vec3 = Vector3<f32>;
 
@@ -133,9 +129,7 @@ impl Camera {
 	}
 	
 	pub fn get_view(&self) -> Matrix4<f32> {
-		let worldup: Vec3 = Vector3::new(0.0, 1.0, 0.0);
 		let eye: [f32; 3] = *self.pos.as_ref();
-		let center: [f32; 3] = *(self.pos + self.front).as_ref();
 		
 		Matrix4::look_at_dir(Point3::from(eye), self.front, self.up)
 	}

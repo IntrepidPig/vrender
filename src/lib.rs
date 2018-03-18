@@ -18,34 +18,29 @@ pub mod window {
 #[cfg(test)]
 mod tests;
 
-use td::{Color, Vertex, Camera};
-use render::{Render, RenderTarget};
+use td::{Vertex, Camera};
+use render::Render;
 use obj::Object;
 
-use std::borrow::Borrow;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::sync::Arc;
-use std::cell::RefCell;
 use std::mem;
 use std::collections::HashMap;
-use std::slice;
 
-use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice, Features};
+use vulkano::instance::{Instance, PhysicalDevice, Features};
 use vulkano::device::{Device, DeviceExtensions};
-use vulkano::buffer::{CpuAccessibleBuffer, ImmutableBuffer, DeviceLocalBuffer, BufferUsage, CpuBufferPool};
-use vulkano::buffer::sys::UnsafeBuffer;
+use vulkano::buffer::{ImmutableBuffer, BufferUsage, CpuBufferPool};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::pipeline::shader::ShaderModule;
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::command_buffer::{CommandBuffer, AutoCommandBufferBuilder, DynamicState};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::sync::{now, GpuFuture};
 use vulkano::framebuffer::{Framebuffer, Subpass};
 use vulkano::format::Format;
 use vulkano::swapchain::{self, Surface, Swapchain, PresentMode, SurfaceTransform, SwapchainCreationError, AcquireError};
 use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, WindowBuilder, Window, Event};
-use cgmath::{Matrix4, Quaternion, PerspectiveFov, Deg, Rotation, Vector3, Rad, One, Zero};
+use cgmath::{Matrix4, Deg};
 
 pub struct Renderer<A: App> {
 	app: A,
@@ -65,7 +60,7 @@ impl<A: App> Renderer<A> {
 		let instance = Instance::new(None, &vulkano_win::required_extensions(), None)
 			.expect("Failed to create instance");
 		
-		let mut events_loop = EventsLoop::new();
+		let events_loop = EventsLoop::new();
 		
 		let surface = WindowBuilder::new().build_vk_surface(&events_loop, instance.clone()).unwrap();
 		
@@ -92,7 +87,7 @@ impl<A: App> Renderer<A> {
 		let instance = Arc::clone(&self.instance);
 		
 		let mut dimensions = {
-			let (width, height) = self.window.window().get_inner_size_pixels().unwrap();
+			let (width, height) = self.window.window().get_inner_size().unwrap();
 			[width, height]
 		};
 		
@@ -171,7 +166,6 @@ impl<A: App> Renderer<A> {
 		let pipeline = Arc::new(GraphicsPipeline::start()
 				.vertex_input_single_buffer::<Vertex>()
 				.vertex_shader(vs.main_entry_point(), ())
-				//.triangle_list()
 				.viewports_dynamic_scissors_irrelevant(1)
 				.fragment_shader(fs.main_entry_point(), ())
 				.depth_stencil_simple_depth()
@@ -193,7 +187,7 @@ impl<A: App> Renderer<A> {
 			
 			if recreate_swapchain {
 				dimensions = {
-					let (width, height) = self.window.window().get_inner_size_pixels().unwrap();
+					let (width, height) = self.window.window().get_inner_size().unwrap();
 					[width, height]
 				};
 				
@@ -271,12 +265,12 @@ impl<A: App> Renderer<A> {
 					};
 					
 					let viter = data.data.vbuf();
-					let (vbuf, vbuf_fut) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+					let (vbuf, _) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 					
 					// Draw indexed call if the mesh has an index buffer
 					if data.data.indexed {
 						let iiter = data.data.ibuf();
-						let (ibuf, ibuf_fut) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+						let (ibuf, _) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
 						cmd_buffer = cmd_buffer
 							.draw_indexed(pipeline.clone(), dynamic_state, vbuf, ibuf, set.clone(), ())
 							.unwrap();
@@ -341,7 +335,7 @@ pub trait App {
 	fn handle_event(&mut self, event: Event, context: Context);
 	fn update(&mut self, ms: f32, context: Context);
 	fn is_running(&self) -> bool;
-	fn start(&mut self, context: Context) { }
+	fn start(&mut self, _context: Context) { }
 }
 
 mod vs {
