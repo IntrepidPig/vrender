@@ -6,9 +6,29 @@ use vulkano::device::Queue;
 use td::*;
 use render::Render;
 
+#[derive(Debug)]
 pub struct Mesh {
 	pub verts: Vec<Vertex>,
 	pub indices: Vec<u32>,
+	pub indexed: bool,
+}
+
+pub struct Object {
+	pub data: Box<Mesh>,
+}
+
+impl Object {
+	pub fn from_mesh(m: Mesh) -> Self {
+		Object {
+			data: Box::new(m),
+		}
+	}
+	
+	pub fn translate(&mut self, t: &Vec3) {
+		for v in self.data.verts.iter_mut() {
+			v.translate(t);
+		}
+	}
 }
 
 impl Mesh {
@@ -27,8 +47,17 @@ impl Mesh {
 		
 		Ok(Mesh {
 			verts,
-			indices
+			indices,
+			indexed: true,
 		})
+	}
+	
+	pub fn new_pure(verts: Vec<Vertex>) -> Self {
+		Mesh {
+			verts,
+			indices: Vec::new(),
+			indexed: false,
+		}
 	}
 }
 
@@ -36,7 +65,6 @@ impl Render for Mesh {
 	fn vbuf(&self) -> &[Vertex] {
 		self.verts.as_ref()
 	}
-	
 	fn ibuf(&self) -> &[u32] {
 		self.indices.as_ref()
 	}

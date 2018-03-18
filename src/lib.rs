@@ -18,13 +18,16 @@ pub mod window {
 #[cfg(test)]
 mod tests;
 
-use td::{Color, Vertex, Mesh, Camera};
-use render::{Render, RenderTargets};
+use td::{Color, Vertex, Camera};
+use render::{Render, RenderTarget};
+use obj::Object;
 
+use std::borrow::Borrow;
 use std::time::{Duration, Instant};
 use std::sync::Arc;
 use std::cell::RefCell;
 use std::mem;
+use std::collections::HashMap;
 use std::slice;
 
 use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice, Features};
@@ -44,14 +47,27 @@ use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, WindowBuilder, Window, Event};
 use cgmath::{Matrix4, Quaternion, PerspectiveFov, Deg, Rotation, Vector3, Rad, One, Zero};
 
-pub trait App {
-	fn get_data(&self) -> RenderTargets;
-	fn get_camera(&mut self) -> &mut Camera;
-	fn handle_event(&mut self, event: Event);
-	fn update(&mut self, ms: f32);
-	fn is_running(&mut self) -> &mut bool;
+pub struct Renderer<A: App> {
+	app: A,
+	targets: HashMap<String, Object>,
+}
+
+impl<A: App> Renderer<A> {
+	pub fn new(app: A) -> Self {
+		let mut renderer = Renderer {
+			app,
+			targets: HashMap::new(),
+		};
+		
+		renderer.app.start(&mut renderer.targets);
+		renderer
+	}
 	
-	fn run(&mut self) {
+	pub fn add_target(&mut self, name: &str, t: Object) {
+		self.targets.insert(name.to_string(), t);
+	}
+	
+	pub fn run(&mut self) {
 		let instance = Instance::new(None, &vulkano_win::required_extensions(), None)
 				.expect("Failed to create instance");
 		
@@ -64,7 +80,7 @@ pub trait App {
 			[width, height]
 		};
 		
-		self.get_camera().proj = cgmath::PerspectiveFov {
+		self.app.get_camera().proj = cgmath::PerspectiveFov {
 			fovy: Deg(45.0 as f32).into(),
 			aspect: dimensions[0] as f32 / dimensions[1] as f32,
 			near: 0.1,
@@ -154,7 +170,7 @@ pub trait App {
 		
 		let uniform_buffer = CpuBufferPool::<vs::ty::Data>::uniform_buffer(device.clone());
 		
-		while *self.is_running() {
+		while self.app.is_running() {
 			let start = Instant::now();
 			
 			previous_frame_end.cleanup_finished();
@@ -176,7 +192,7 @@ pub trait App {
 				mem::replace(&mut swapchain, new_swapchain);
 				mem::replace(&mut images, new_images);
 				
-				self.get_camera().proj = cgmath::PerspectiveFov {
+				self.app.get_camera().proj = cgmath::PerspectiveFov {
 					fovy: Deg(45.0 as f32).into(),
 					aspect: dimensions[0] as f32 / dimensions[1] as f32,
 					near: 0.1,
@@ -210,48 +226,51 @@ pub trait App {
 			
 			let uniform_buffer_sub = {
 				let uniform_data = vs::ty::Data {
-					proj: *Matrix4::from(self.get_camera().proj).as_ref(),
-					view: *self.get_camera().get_view().as_ref(),
+					proj: *Matrix4::from(self.app.get_camera().proj).as_ref(),
+					view: *self.app.get_camera().get_view().as_ref(),
+					viewPos: *self.app.get_camera().get_pos().as_ref(),
 				};
 				
 				uniform_buffer.next(uniform_data).unwrap()
 			};
 			
 			let set = Arc::new(PersistentDescriptorSet::start(pipeline.clone(), 0)
-					.add_buffer(uniform_buffer_sub).unwrap()
-					.build().unwrap());
+				.add_buffer(uniform_buffer_sub).unwrap()
+				.build().unwrap());
 			
 			let mut cmd_buffer = AutoCommandBufferBuilder::primary_one_time_submit(device.clone(), queue.family()).unwrap()
 					.begin_render_pass(framebuffers.as_ref().unwrap()[image_num].clone(), false, vec![[0.0, 0.0, 0.0, 1.0].into(), 1f32.into()])
 					.unwrap();
 			
-			for data in &*self.get_data() {
-				let dynamic_state = DynamicState {
-					viewports: Some(vec![Viewport {
-						origin: [0.0, 0.0],
-						dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-						depth_range: 0.0..1.0,
-					}]),
-					..DynamicState::none()
-				};
-				
-				//let viter: std::iter::Cloned<Vertex> = data.vbuf().iter().cloned();
-                //let iiter = data.ibuf().iter().cloned();
-				
-                let viter = data.vbuf();
-                let iiter = data.ibuf();
-
-				let (vbuf, vbuf_fut) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
-				let (ibuf, ibuf_fut) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
-				
-				//let vertex_buffer = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), data.0.iter().cloned()).unwrap();
-				//let indices = CpuAccessibleBuffer::from_iter(device.clone(), BufferUsage::all(), data.1.iter().cloned()).unwrap();
-				//let (vertex_buffer, _) = ImmutableBuffer::from_iter(data.0.into_iter(), BufferUsage::all(), queue.clone()).unwrap();
-				//let (indices, _) = ImmutableBuffer::from_iter(data.1.into_iter(), BufferUsage::all(), queue.clone()).unwrap();
-				
-				cmd_buffer = cmd_buffer
-						.draw_indexed(pipeline.clone(), dynamic_state, vbuf, ibuf, set.clone(), ())
-						.unwrap();
+			{
+				// Add a command for each object in the object
+				for (_, data) in &self.targets {
+					let dynamic_state = DynamicState {
+						viewports: Some(vec![Viewport {
+							origin: [0.0, 0.0],
+							dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+							depth_range: 0.0..1.0,
+						}]),
+						..DynamicState::none()
+					};
+					
+					let viter = data.data.vbuf();
+					let (vbuf, vbuf_fut) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+					
+					// Draw indexed call if the mesh has an index buffer
+					if data.data.indexed {
+						let iiter = data.data.ibuf();
+						let (ibuf, ibuf_fut) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+						cmd_buffer = cmd_buffer
+							.draw_indexed(pipeline.clone(), dynamic_state, vbuf, ibuf, set.clone(), ())
+							.unwrap();
+					} else {
+						// Draw the vertices as usual
+						cmd_buffer = cmd_buffer
+							.draw(pipeline.clone(), dynamic_state, vbuf, set.clone(), ())
+							.unwrap();
+					}
+				}
 			}
 			
 			let cmd_buffer = cmd_buffer
@@ -269,7 +288,7 @@ pub trait App {
 			previous_frame_end = Box::new(future) as Box<_>;
 			
 			events_loop.poll_events(|event| {
-				self.handle_event(event.clone());
+				self.app.handle_event(event.clone(), &mut self.targets);
 				
 				use winit::WindowEvent::*;
 				match event {
@@ -285,11 +304,17 @@ pub trait App {
 			
 			let elapsed = start.elapsed();
 			let ms = (elapsed.as_secs() as f64 * 1000.0f64 + elapsed.subsec_nanos() as f64 / 1_000_000.0f64) as f32;
-			self.update(ms);
-			//mesh.rotate(Vector3::new(rot, rot, rot));
-			//mesh.translate(Vector3::new(0.0, 0.0, -ms / 1000.0));
+			self.app.update(ms, &mut self.targets);
 		}
 	}
+}
+
+pub trait App {
+	fn get_camera(&mut self) -> &mut Camera;
+	fn handle_event(&mut self, event: Event, objects: &mut HashMap<String, Object>);
+	fn update(&mut self, ms: f32, objects: &mut HashMap<String, Object>);
+	fn is_running(&self) -> bool;
+	fn start(&mut self, objects: &mut HashMap<String, Object>) { }
 }
 
 mod vs {
@@ -299,19 +324,28 @@ mod vs {
 
 layout(location = 0) in vec4 a_Pos;
 layout(location = 1) in vec4 a_Color;
+layout(location = 2) in vec3 a_Normal;
 
 layout(location = 0) out vec4 v_Color;
+layout(location = 1) out vec3 v_Normal;
+layout(location = 2) out vec3 v_Pos;
+layout(location = 3) out vec3 viewPos;
 
 layout(set = 0, binding = 0) uniform Data {
 	mat4 proj;
 	mat4 view;
+	vec3 viewPos;
 } uniforms;
 
 void main() {
 	v_Color = a_Color;
     gl_Position = uniforms.proj * uniforms.view * vec4(a_Pos.xyz, 1.0);
+	v_Pos = a_Pos.xyz;
+	v_Normal = a_Normal;
+	viewPos = uniforms.viewPos;
 }
 "]
+	#[allow(dead_code)]
 	struct Dummy;
 }
 
@@ -321,12 +355,34 @@ mod fs {
 	#[src = "#version 450 core
 
 layout(location = 0) in vec4 v_Color;
+layout(location = 1) in vec3 v_Normal;
+layout(location = 2) in vec3 v_Pos;
+layout(location = 3) in vec3 viewPos;
 
 layout(location = 0) out vec4 f_Color;
 
 void main() {
-    f_Color = v_Color;
+	float ambientStrength = 0.1;
+	vec3 ambient = ambientStrength * vec3(1.0, 1.0, 1.0);
+	
+	vec3 lightColor = vec3(1.0, 1.0, 1.0);
+	vec3 lightPos = vec3(4.0, 3.0, 2.0);
+	vec3 norm = normalize(v_Normal);
+	vec3 lightDir = normalize(lightPos - v_Pos);
+
+	float diff = max(dot(norm, lightDir), 0.0);
+	vec3 diffuse = diff * lightColor;
+
+	float specularStrength = 0.5;
+	vec3 viewDir = normalize(viewPos - v_Pos);
+	vec3 reflectDir = reflect(-lightDir, norm);
+	float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+	vec3 specular = specularStrength * spec * lightColor;
+
+	vec4 result = vec4((ambient + diffuse + specular) * v_Color.xyz, v_Color.w);
+    f_Color = result;
 }
 "]
+	#[allow(dead_code)]
 	struct Dummy;
 }

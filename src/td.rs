@@ -6,57 +6,6 @@ use cgmath::{Matrix4, Euler, Vector4, Vector3, Rad, One, Zero, Point3, Deg, Inne
 
 pub type Vec3 = Vector3<f32>;
 
-#[derive(Clone)]
-pub struct Mesh {
-	verts: Vec<Vertex>,
-	indices: Vec<u16>,
-	position: Vec3,
-}
-
-impl Mesh {
-	pub fn new(verts: Vec<Vertex>, indices: Vec<u16>) -> Mesh {
-		Mesh {
-			verts,
-			indices,
-			position: Vector3::new(0.0, 0.0, 0.0),
-		}
-	}
-	
-	pub fn get_position(&self) -> Vec3 {
-		self.position.clone()
-	}
-	
-	pub fn set_position(&mut self, pos: Vec3) {
-		self.position = pos;
-	}
-	
-	pub fn v_buf(&self, device: Arc<Device>) -> Arc<CpuAccessibleBuffer<[Vertex]>> {
-		let verts = self.verts.iter().map(|vert| {
-			let mut vert = *vert;
-			let new_vec = vert.vec3() + self.position;
-			vert.a_Pos = [new_vec.x, new_vec.y, new_vec.z, vert.a_Pos[3]];
-			vert
-		}).collect::<Vec<_>>();
-		CpuAccessibleBuffer::from_iter(device, BufferUsage::all(), verts.into_iter()).unwrap()
-	}
-	
-	pub fn i_buf(&self, device: Arc<Device>) -> Arc<CpuAccessibleBuffer<[u16]>> {
-		CpuAccessibleBuffer::from_iter(device, BufferUsage::all(), self.indices.clone().into_iter()).unwrap()
-	}
-	
-	pub fn translate(&mut self, trans: Vec3) {
-		self.position += trans;
-	}
-	
-	pub fn rotate(&mut self, rot: Vector3<Rad<f32>>) {
-		for vert in &mut self.verts {
-			vert.a_Pos = *(Matrix4::from_angle_x(rot.x) * Vector4::from(vert.a_Pos)).as_ref();
-			vert.a_Pos = *(Matrix4::from_angle_y(rot.y) * Vector4::from(vert.a_Pos)).as_ref();
-			vert.a_Pos = *(Matrix4::from_angle_z(rot.z) * Vector4::from(vert.a_Pos)).as_ref();
-		}
-	}
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct Color {
 	r: f32,
@@ -82,16 +31,19 @@ impl Color {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[allow(non_snake_case)]
 pub struct Vertex {
 	pub a_Pos: [f32; 4],
 	pub a_Color: [f32; 4],
+	pub a_Normal: [f32; 3],
 }
 
 impl Vertex {
 	pub fn new(x: f32, y: f32, z: f32, w: f32, color: Color) -> Vertex {
 		Vertex {
 			a_Pos: [x, y, z, w],
-			a_Color: color.raw()
+			a_Color: color.raw(),
+			a_Normal: [0.0, 0.0, 0.0],
 		}
 	}
 	
@@ -106,9 +58,15 @@ impl Vertex {
 	pub fn vec4(&self) -> Vector4<f32> {
 		Vector4::new(self.a_Pos[0], self.a_Pos[1], self.a_Pos[2], self.a_Pos[3])
 	}
+	
+	pub fn translate(&mut self, t: &Vec3) {
+		self.a_Pos[0] += t.x;
+		self.a_Pos[1] += t.y;
+		self.a_Pos[2] += t.z;
+	}
 }
 
-impl_vertex!(Vertex, a_Pos, a_Color);
+impl_vertex!(Vertex, a_Pos, a_Color, a_Normal);
 
 pub struct Camera {
 	pos: Vec3,

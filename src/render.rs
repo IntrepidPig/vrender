@@ -7,6 +7,26 @@ pub trait Render {
 	fn ibuf(&self) -> &[u32];
 }
 
+
+pub struct RenderTarget {
+	target: Box<Render>,
+}
+
+impl Deref for RenderTarget {
+	type Target = Box<Render>;
+	
+	fn deref(&self) -> &Self::Target {
+		&self.target
+	}
+}
+
+impl DerefMut for RenderTarget {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.target
+	}
+}
+
+/*
 pub struct RenderTargets<'a> {
 	pub targets: Vec<&'a Render>
 }
@@ -33,3 +53,4 @@ impl<'a> DerefMut for RenderTargets<'a> {
 	}
 }
 
+*/
