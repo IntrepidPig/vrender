@@ -46,11 +46,10 @@ pub struct Renderer<A: App> {
 	internal: RenderInternal,
 	events_loop: EventsLoop,
 	surface: Arc<Surface<Window>>,
-	targets: HashMap<String, Object>,
+	pub targets: HashMap<String, Object>,
 }
 
 pub struct RenderInternal {
-	pub(crate) instance: Arc<Instance>,
 	pub(crate) device: Arc<Device>,
 	pub(crate) queue: Arc<Queue>,
 	pub(crate) swapchain: Arc<Swapchain<Window>>,
@@ -129,7 +128,6 @@ impl<A: App> Renderer<A> {
 		let mut renderer = Renderer {
 			app,
 			internal: RenderInternal {
-				instance,
 				device,
 				queue,
 				swapchain,
@@ -146,10 +144,6 @@ impl<A: App> Renderer<A> {
 			internal: &renderer.internal,
 		});
 		renderer
-	}
-	
-	pub fn add_target(&mut self, name: &str, t: Object) {
-		self.targets.insert(name.to_string(), t);
 	}
 	
 	pub fn run(&mut self) {
