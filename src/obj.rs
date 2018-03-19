@@ -1,38 +1,48 @@
 use std::sync::Arc;
+use std::fmt;
 
 use vulkano::buffer::{ImmutableBuffer, BufferUsage};
 use vulkano::device::Queue;
 
+use RenderInternal;
 use td::*;
 use render::Render;
 
-#[derive(Debug)]
 pub struct Mesh {
-	pub verts: Vec<Vertex>,
-	pub indices: Vec<u32>,
-	pub indexed: bool,
+	pub(crate) verts: Arc<ImmutableBuffer<[Vertex]>>,
+	pub(crate) indices: Option<Arc<ImmutableBuffer<[u32]>>>,
+}
+
+impl fmt::Debug for Mesh {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "Mesh {{ verts: ImmutableBuffer, indices: {} }}", if self.indices.is_some() {
+			"Some(ImmutableBuffer)"
+		} else {
+			"None"
+		})
+	}
 }
 
 pub struct Object {
-	pub data: Box<Mesh>,
+	pub mesh: Box<Mesh>,
 }
 
 impl Object {
 	pub fn from_mesh(m: Mesh) -> Self {
 		Object {
-			data: Box::new(m),
+			mesh: Box::new(m),
 		}
 	}
 	
 	pub fn translate(&mut self, t: &Vec3) {
-		for v in self.data.verts.iter_mut() {
+		/*for v in self.mesh.verts.iter_mut() {
 			v.translate(t);
-		}
+		}*/
 	}
 }
 
 impl Mesh {
-	pub fn new(verts: Vec<Vertex>, indices: Vec<u32>) -> Result<Self, ()> {
+	pub fn new(internal: &RenderInternal, verts: Vec<Vertex>, indices: Vec<u32>) -> Result<Self, ()> {
 		// Make sure the indices represent triangles well
 		if indices.len() % 3 != 0 {
 			return Err(())
@@ -45,48 +55,21 @@ impl Mesh {
 			}
 		}
 		
+		let (vbuf, _) = ImmutableBuffer::from_iter(verts.into_iter(), BufferUsage::all(), internal.queue.clone()).unwrap();
+		let (ibuf, _) = ImmutableBuffer::from_iter(indices.into_iter(), BufferUsage::all(), internal.queue.clone()).unwrap();
+		
 		Ok(Mesh {
-			verts,
-			indices,
-			indexed: true,
+			verts: vbuf,
+			indices: Some(ibuf),
 		})
 	}
 	
-	pub fn new_pure(verts: Vec<Vertex>) -> Self {
-		Mesh {
-			verts,
-			indices: Vec::new(),
-			indexed: false,
-		}
-	}
-}
-
-impl Render for Mesh {
-	fn vbuf(&self) -> &[Vertex] {
-		self.verts.as_ref()
-	}
-	fn ibuf(&self) -> &[u32] {
-		self.indices.as_ref()
-	}
-}
-
-pub struct GpuMesh {
-	pub vbuf: Arc<ImmutableBuffer<[Vertex]>>,
-	pub ibuf: Arc<ImmutableBuffer<[u32]>>,
-}
-
-impl GpuMesh {
-	pub fn from_mesh(mesh: &Mesh, queue: Arc<Queue>) -> Self {
-		let (vbuf, _) = ImmutableBuffer::from_iter(mesh.verts.iter().cloned(),
-		                                             BufferUsage::all(),
-		                                             Arc::clone(&queue)).unwrap();
-		let (ibuf, _) = ImmutableBuffer::from_iter(mesh.indices.iter().cloned(),
-		                                              BufferUsage::all(),
-		                                              Arc::clone(&queue)).unwrap();
+	pub fn new_pure(internal: &RenderInternal, verts: Vec<Vertex>) -> Self {
+		let (vbuf, _) = ImmutableBuffer::from_iter(verts.into_iter(), BufferUsage::all(), internal.queue.clone()).unwrap();
 		
-		GpuMesh {
-			vbuf,
-			ibuf,
+		Mesh {
+			verts: vbuf,
+			indices: None,
 		}
 	}
 }

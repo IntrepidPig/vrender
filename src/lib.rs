@@ -28,7 +28,7 @@ use std::mem;
 use std::collections::HashMap;
 
 use vulkano::instance::{Instance, PhysicalDevice, Features};
-use vulkano::device::{Device, DeviceExtensions};
+use vulkano::device::{Device, DeviceExtensions, Queue};
 use vulkano::buffer::{ImmutableBuffer, BufferUsage, CpuBufferPool};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
@@ -38,25 +38,36 @@ use vulkano::sync::{now, GpuFuture};
 use vulkano::framebuffer::{Framebuffer, Subpass};
 use vulkano::format::Format;
 use vulkano::swapchain::{self, Surface, Swapchain, PresentMode, SurfaceTransform, SwapchainCreationError, AcquireError};
+use vulkano::image::SwapchainImage;
 use vulkano_win::VkSurfaceBuild;
 use winit::{EventsLoop, WindowBuilder, Window, Event};
 use cgmath::{Matrix4, Deg};
 
 pub struct Renderer<A: App> {
 	app: A,
-	instance: Arc<Instance>,
+	internal: RenderInternal,
 	events_loop: EventsLoop,
-	window: Arc<Surface<Window>>,
+	surface: Arc<Surface<Window>>,
 	targets: HashMap<String, Object>,
+}
+
+#[derive(Clone)]
+pub struct RenderInternal {
+	pub(crate) instance: Arc<Instance>,
+	pub(crate) device: Arc<Device>,
+	pub(crate) queue: Arc<Queue>,
+	pub(crate) swapchain: Arc<Swapchain<Window>>,
+	pub(crate) images: Vec<Arc<SwapchainImage<Window>>>
 }
 
 pub struct Context<'a> {
 	pub window: &'a Window,
 	pub targets: &'a mut HashMap<String, Object>,
+	pub internal: &'a RenderInternal,
 }
 
 impl<A: App> Renderer<A> {
-	pub fn new(app: A) -> Self {
+	pub fn new(mut app: A) -> Self {
 		let instance = Instance::new(None, &vulkano_win::required_extensions(), None)
 			.expect("Failed to create instance");
 		
@@ -64,45 +75,24 @@ impl<A: App> Renderer<A> {
 		
 		let surface = WindowBuilder::new().build_vk_surface(&events_loop, instance.clone()).unwrap();
 		
-		let mut renderer = Renderer {
-			app,
-			instance,
-			events_loop,
-			window: Arc::clone(&surface),
-			targets: HashMap::new(),
-		};
-		
-		renderer.app.start(Context {
-			window: &renderer.window.window(),
-			targets: &mut renderer.targets,
-		});
-		renderer
-	}
-	
-	pub fn add_target(&mut self, name: &str, t: Object) {
-		self.targets.insert(name.to_string(), t);
-	}
-	
-	pub fn run(&mut self) {
-		let instance = Arc::clone(&self.instance);
-		
 		let mut dimensions = {
-			let (width, height) = self.window.window().get_inner_size().unwrap();
+			let (width, height) = surface.window().get_inner_size().unwrap();
 			[width, height]
 		};
 		
-		self.app.get_camera().proj = cgmath::PerspectiveFov {
+		app.get_camera().proj = cgmath::PerspectiveFov {
 			fovy: Deg(45.0 as f32).into(),
 			aspect: dimensions[0] as f32 / dimensions[1] as f32,
 			near: 0.1,
 			far: 1000.0
 		};
 		
-		let physical = PhysicalDevice::enumerate(&instance).next()
-				.expect("No physical device available");
+		let instance_clone = Arc::clone(&instance);
+		let physical = PhysicalDevice::enumerate(&instance_clone).next()
+			.expect("No physical device available");
 		let queue_family = physical.queue_families()
-				.find(|&q| q.supports_graphics())
-				.expect("Couldn't find a graphical queue family");
+			.find(|&q| q.supports_graphics())
+			.expect("Couldn't find a graphical queue family");
 		let (device, mut queues) = {
 			Device::new(physical,
 			            &Features::none(),
@@ -111,20 +101,20 @@ impl<A: App> Renderer<A> {
 				            ..DeviceExtensions::none()
 			            },
 			            [(queue_family, 0.5)].iter().cloned())
-					.expect("Failed to create Device")
+				.expect("Failed to create Device")
 		};
 		let queue = queues.next().unwrap();
 		
 		let (mut swapchain, mut images) = {
-			let caps = self.window
-					.capabilities(physical)
-					.expect("Failed to get surface capabilites");
+			let caps = surface
+				.capabilities(physical)
+				.expect("Failed to get surface capabilites");
 			
 			let alpha = caps.supported_composite_alpha.iter().next().unwrap();
 			let format = caps.supported_formats[0].0;
 			
 			Swapchain::new(device.clone(),
-			               self.window.clone(),
+			               surface.clone(),
 			               caps.min_image_count,
 			               format,
 			               dimensions,
@@ -136,7 +126,45 @@ impl<A: App> Renderer<A> {
 			               PresentMode::Fifo,
 			               true,
 			               None)
-					.expect("Failed to create swapchain")
+				.expect("Failed to create swapchain")
+		};
+		
+		let mut renderer = Renderer {
+			app,
+			internal: RenderInternal {
+				instance,
+				device,
+				queue,
+				swapchain,
+				images,
+			},
+			events_loop,
+			surface: Arc::clone(&surface),
+			targets: HashMap::new(),
+		};
+		
+		renderer.app.start(Context {
+			window: &renderer.surface.window(),
+			targets: &mut renderer.targets,
+			internal: &renderer.internal,
+		});
+		renderer
+	}
+	
+	pub fn add_target(&mut self, name: &str, t: Object) {
+		self.targets.insert(name.to_string(), t);
+	}
+	
+	pub fn run(&mut self) {
+		let instance = Arc::clone(&self.internal.instance);
+		let device = Arc::clone(&self.internal.device);
+		let queue = Arc::clone(&self.internal.queue);
+		let mut swapchain = Arc::clone(&self.internal.swapchain);
+		//let images = &mut self.internal.images;
+		
+		let mut dimensions = {
+			let (width, height) = self.surface.window().get_inner_size().unwrap();
+			[width, height]
 		};
 		
 		let render_pass = Arc::new(single_pass_renderpass!(device.clone(),
@@ -187,7 +215,7 @@ impl<A: App> Renderer<A> {
 			
 			if recreate_swapchain {
 				dimensions = {
-					let (width, height) = self.window.window().get_inner_size().unwrap();
+					let (width, height) = self.surface.window().get_inner_size().unwrap();
 					[width, height]
 				};
 				
@@ -200,7 +228,7 @@ impl<A: App> Renderer<A> {
 				};
 				
 				mem::replace(&mut swapchain, new_swapchain);
-				mem::replace(&mut images, new_images);
+				mem::replace(&mut self.internal.images, new_images);
 				
 				self.app.get_camera().proj = cgmath::PerspectiveFov {
 					fovy: Deg(45.0 as f32).into(),
@@ -216,7 +244,7 @@ impl<A: App> Renderer<A> {
 			}
 			
 			if framebuffers.is_none() {
-				let new_framebuffers = Some(images.iter().map(|image| {
+				let new_framebuffers = Some(self.internal.images.iter().map(|image| {
 					Arc::new(Framebuffer::start(render_pass.clone())
 							.add(image.clone()).unwrap()
 							.add(depth_buffer.clone()).unwrap()
@@ -264,20 +292,15 @@ impl<A: App> Renderer<A> {
 						..DynamicState::none()
 					};
 					
-					let viter = data.data.vbuf();
-					let (vbuf, _) = ImmutableBuffer::from_iter(viter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
-					
 					// Draw indexed call if the mesh has an index buffer
-					if data.data.indexed {
-						let iiter = data.data.ibuf();
-						let (ibuf, _) = ImmutableBuffer::from_iter(iiter.iter().cloned(), BufferUsage::all(), queue.clone()).unwrap();
+					if let Some(ref ibuf) = data.mesh.indices {
 						cmd_buffer = cmd_buffer
-							.draw_indexed(pipeline.clone(), dynamic_state, vbuf, ibuf, set.clone(), ())
+							.draw_indexed(pipeline.clone(), dynamic_state, Arc::clone(&data.mesh.verts), Arc::clone(&ibuf), set.clone(), ())
 							.unwrap();
 					} else {
 						// Draw the vertices as usual
 						cmd_buffer = cmd_buffer
-							.draw(pipeline.clone(), dynamic_state, vbuf, set.clone(), ())
+							.draw(pipeline.clone(), dynamic_state, Arc::clone(&data.mesh.verts), set.clone(), ())
 							.unwrap();
 					}
 				}
@@ -299,13 +322,15 @@ impl<A: App> Renderer<A> {
 			
 			let app = &mut self.app;
 			let events_loop = &mut self.events_loop;
-			let window = &self.window;
+			let surface = &self.surface;
 			let targets = &mut self.targets;
+			let internal = &self.internal;
 			
 			events_loop.poll_events(|event| {
 				app.handle_event(event.clone(), Context {
-					window: window.window(),
+					window: surface.window(),
 					targets,
+					internal,
 				});
 				
 				use winit::WindowEvent::*;
@@ -323,8 +348,9 @@ impl<A: App> Renderer<A> {
 			let elapsed = start.elapsed();
 			let ms = (elapsed.as_secs() as f64 * 1000.0f64 + elapsed.subsec_nanos() as f64 / 1_000_000.0f64) as f32;
 			app.update(ms, Context {
-				window: window.window(),
+				window: surface.window(),
 				targets,
+				internal,
 			});
 		}
 	}
