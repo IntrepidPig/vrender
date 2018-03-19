@@ -49,7 +49,6 @@ pub struct Renderer<A: App> {
 	targets: HashMap<String, Object>,
 }
 
-#[derive(Clone)]
 pub struct RenderInternal {
 	pub(crate) instance: Arc<Instance>,
 	pub(crate) device: Arc<Device>,
