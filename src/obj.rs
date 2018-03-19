@@ -2,11 +2,9 @@ use std::sync::Arc;
 use std::fmt;
 
 use vulkano::buffer::{ImmutableBuffer, BufferUsage};
-use vulkano::device::Queue;
 
 use RenderInternal;
 use td::*;
-use render::Render;
 
 pub struct Mesh {
 	pub(crate) verts: Arc<ImmutableBuffer<[Vertex]>>,
@@ -32,12 +30,6 @@ impl Object {
 		Object {
 			mesh: Box::new(m),
 		}
-	}
-	
-	pub fn translate(&mut self, t: &Vec3) {
-		/*for v in self.mesh.verts.iter_mut() {
-			v.translate(t);
-		}*/
 	}
 }
 

@@ -6,7 +6,6 @@ extern crate winit;
 extern crate vulkano_win;
 extern crate cgmath;
 
-pub mod render;
 pub mod obj;
 pub mod td;
 pub mod math {
@@ -19,7 +18,6 @@ pub mod window {
 mod tests;
 
 use td::{Vertex, Camera};
-use render::Render;
 use obj::Object;
 
 use std::time::Instant;
@@ -29,7 +27,7 @@ use std::collections::HashMap;
 
 use vulkano::instance::{Instance, PhysicalDevice, Features};
 use vulkano::device::{Device, DeviceExtensions, Queue};
-use vulkano::buffer::{ImmutableBuffer, BufferUsage, CpuBufferPool};
+use vulkano::buffer::CpuBufferPool;
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -75,7 +73,7 @@ impl<A: App> Renderer<A> {
 		
 		let surface = WindowBuilder::new().build_vk_surface(&events_loop, instance.clone()).unwrap();
 		
-		let mut dimensions = {
+		let dimensions = {
 			let (width, height) = surface.window().get_inner_size().unwrap();
 			[width, height]
 		};
@@ -105,7 +103,7 @@ impl<A: App> Renderer<A> {
 		};
 		let queue = queues.next().unwrap();
 		
-		let (mut swapchain, mut images) = {
+		let (swapchain, images) = {
 			let caps = surface
 				.capabilities(physical)
 				.expect("Failed to get surface capabilites");
@@ -156,11 +154,9 @@ impl<A: App> Renderer<A> {
 	}
 	
 	pub fn run(&mut self) {
-		let instance = Arc::clone(&self.internal.instance);
 		let device = Arc::clone(&self.internal.device);
 		let queue = Arc::clone(&self.internal.queue);
 		let mut swapchain = Arc::clone(&self.internal.swapchain);
-		//let images = &mut self.internal.images;
 		
 		let mut dimensions = {
 			let (width, height) = self.surface.window().get_inner_size().unwrap();
